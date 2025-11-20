@@ -19,7 +19,7 @@ MONGO_URI = os.getenv("MONGO_URI")
 DB_NAME = 'weather_db'
 COLLECTION_NAME = 'weather_data'
 
-st.set_page_config(page_title="Weather Monitoring System", page_icon="Weather", layout="wide")
+st.set_page_config(page_title="Weather Monitoring System", page_icon="🌤️", layout="wide")
 
 # ==================== SIDEBAR CONTROLS ====================
 st.sidebar.title("Dashboard Controls")
@@ -136,9 +136,15 @@ def display_live_view():
         condition = latest.get('condition', 'Unknown')
         desc = latest.get('description', '').title()
         icon_map = {
-            "Clear": "Clear Sky", "Clouds": "Cloudy", "Rain": "Rainy",
-            "Drizzle": "Drizzle", "Thunderstorm": "Thunderstorm",
-            "Snow": "Snowy", "Mist": "Misty", "Fog": "Foggy", "Haze": "Hazy"
+            "Clear": "Clear Sky",
+            "Clouds": "Cloudy",
+            "Rain": "Rainy",
+            "Drizzle": "Drizzle",
+            "Thunderstorm": "Thunderstorm",
+            "Snow": "Snowy",
+            "Mist": "Misty",
+            "Fog": "Foggy",
+            "Haze": "Hazy"
         }
         icon = icon_map.get(condition, "Unknown")
         st.markdown(f"### Current Weather: {icon} {desc}")
