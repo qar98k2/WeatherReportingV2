@@ -1,19 +1,19 @@
 # This file contains all required packages for both the Streamlit dashboard and Kafka producer
-streamlit>=1.28.0  # Modern web framework for building data applications
-streamlit-autorefresh
-pandas>=2.0.0      # Data manipulation and analysis library
-numpy>=1.24.0      # Numerical computing and array operations
-plotly>=5.15.0     # Interactive plotting library for charts and graphs
-kafka-python>=2.0.2  # Apache Kafka Python client for both producer and consumer
-python-dateutil>=2.8.2  # Extended date/time utilities (used by pandas)
-pymongo>=4.5.0
-scikit-learn
-openpyxl
-fpdf2
+# streamlit>=1.28.0  # Modern web framework for building data applications
+# streamlit-autorefresh
+# pandas>=2.0.0      # Data manipulation and analysis library
+# numpy>=1.24.0      # Numerical computing and array operations
+# plotly>=5.15.0     # Interactive plotting library for charts and graphs
+# kafka-python>=2.0.2  # Apache Kafka Python client for both producer and consumer
+# python-dateutil>=2.8.2  # Extended date/time utilities (used by pandas)
+# pymongo>=4.5.0
+# scikit-learn
+# openpyxl
+# fpdf2
 streamlit-emoji-shortcodes
-pymongo>=4.5.0
-python-dotenv
-requests
+# pymongo>=4.5.0
+# python-dotenv
+# requests
 
 streamlit>=1.28.0
 streamlit-autorefresh
