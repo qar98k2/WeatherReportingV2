@@ -10,7 +10,7 @@
 # scikit-learn
 # openpyxl
 # fpdf2
-streamlit-emoji-shortcodes
+# streamlit-emoji-shortcodes
 # pymongo>=4.5.0
 # python-dotenv
 # requests
