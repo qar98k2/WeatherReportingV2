@@ -15,6 +15,20 @@ pymongo>=4.5.0
 python-dotenv
 requests
 
+streamlit>=1.28.0
+streamlit-autorefresh
+pandas>=2.0.0
+numpy>=1.24.0
+plotly>=5.15.0
+kafka-python>=2.0.2
+python-dateutil>=2.8.2
+pymongo>=4.5.0
+requests
+scikit-learn
+openpyxl
+fpdf2
+python-dotenv
+
 # Optional: Storage Systems (uncomment based on your chosen storage)
 # pyarrow>=12.0.0      # Apache Arrow for HDFS integration
 # pymongo>=4.5.0       # MongoDB driver for NoSQL storage
