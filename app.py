@@ -308,9 +308,19 @@ with tab2:
         with col2:
             from io import BytesIO
             output = BytesIO()
+            
+            # Remove timezone from datetime columns for Excel compatibility
+            df_export = df.copy()
+            if 'timestamp' in df_export.columns:
+                df_export['timestamp'] = pd.to_datetime(df_export['timestamp']).dt.tz_localize(None)
+            
+            df_hourly_export = df_hourly.copy()
+            if 'timestamp' in df_hourly_export.columns:
+                df_hourly_export['timestamp'] = pd.to_datetime(df_hourly_export['timestamp']).dt.tz_localize(None)
+            
             with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                df.to_excel(writer, sheet_name='Raw Data', index=False)
-                df_hourly.to_excel(writer, sheet_name='Hourly Summary', index=False)
+                df_export.to_excel(writer, sheet_name='Raw Data', index=False)
+                df_hourly_export.to_excel(writer, sheet_name='Hourly Summary', index=False)
             st.download_button("📊 Download Excel", output.getvalue(), 
                              f"weather_{selected_city}.xlsx",
                              "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
