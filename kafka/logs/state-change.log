@@ -1,0 +1,3 @@
+[2025-11-20 13:20:22,115] INFO [Broker id=1] Transitioning 1 partition(s) to local leaders. (state.change.logger)
+[2025-11-20 13:20:22,117] INFO [Broker id=1] Creating new partition weather-data-0 with topic id ieA4HUReTACGGYfCK9oEKA. (state.change.logger)
+[2025-11-20 13:20:22,140] INFO [Broker id=1] Leader weather-data-0 with topic id Some(ieA4HUReTACGGYfCK9oEKA) starts at leader epoch 0 from offset 0 with partition epoch 0, high watermark 0, ISR [1], adding replicas [] and removing replicas [] . Previous leader None and previous leader epoch was -1. (state.change.logger)
