@@ -44,7 +44,7 @@ Implement data writing and querying for **ONE** of the following: **HDFS** or **
 ## 🏃‍♂️ Setup & Execution
 
 ### Prerequisites
-Python 3.8+, Apache Kafka, HDFS **OR** MongoDB.
+OpenJDK 17 , Python 3.8+, Apache Kafka, HDFS **OR** MongoDB.
 
 ### Setup
 1. **Setup environment**
