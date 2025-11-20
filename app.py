@@ -224,6 +224,9 @@ with tab2:
         }).round(2)
         df_hourly = df_hourly.reset_index()
         
+        # Flatten column names for easier access
+        df_hourly.columns = ['_'.join(col).strip('_') if isinstance(col, tuple) else col for col in df_hourly.columns.values]
+        
         # Charts
         col1, col2 = st.columns(2)
         
@@ -231,21 +234,21 @@ with tab2:
             fig_temp = go.Figure()
             fig_temp.add_trace(go.Scatter(
                 x=df_hourly['timestamp'],
-                y=df_hourly[('temperature', 'mean')],
+                y=df_hourly['temperature_mean'],
                 mode='lines',
                 name='Average',
                 line=dict(color='#ff6b6b', width=2)
             ))
             fig_temp.add_trace(go.Scatter(
                 x=df_hourly['timestamp'],
-                y=df_hourly[('temperature', 'max')],
+                y=df_hourly['temperature_max'],
                 mode='lines',
                 name='Max',
                 line=dict(color='red', width=1, dash='dot')
             ))
             fig_temp.add_trace(go.Scatter(
                 x=df_hourly['timestamp'],
-                y=df_hourly[('temperature', 'min')],
+                y=df_hourly['temperature_min'],
                 mode='lines',
                 name='Min',
                 line=dict(color='blue', width=1, dash='dot')
@@ -261,11 +264,19 @@ with tab2:
             st.plotly_chart(fig_temp, use_container_width=True)
         
         with col2:
-            fig_hum = px.line(df_hourly, x='timestamp', y=('humidity', 'mean'),
-                             title="Humidity Trend (Hourly)",
-                             labels={('humidity', 'mean'): 'Humidity (%)', 'timestamp': 'Time'})
-            fig_hum.update_traces(line_color='#4ecdc4', fill='tozeroy')
+            fig_hum = go.Figure()
+            fig_hum.add_trace(go.Scatter(
+                x=df_hourly['timestamp'],
+                y=df_hourly['humidity_mean'],
+                mode='lines',
+                name='Humidity',
+                line=dict(color='#4ecdc4', width=2),
+                fill='tozeroy'
+            ))
             fig_hum.update_layout(
+                title="Humidity Trend (Hourly)",
+                xaxis_title="Time",
+                yaxis_title="Humidity (%)",
                 font=dict(color='white' if theme == "Dark" else 'black'),
                 plot_bgcolor='rgba(0,0,0,0)',
                 paper_bgcolor='rgba(0,0,0,0)'
