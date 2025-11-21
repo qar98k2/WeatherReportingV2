@@ -242,82 +242,54 @@ def initialize_producer() -> Optional[KafkaProducer]:
 
 
 def main():
-    """Main producer loop"""
+    """Main producer loop – rotates through ALL cities with real data"""
     global producer, running
     
-    # Register signal handlers
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
     
-    # Display configuration
     Config.display_config()
     
-    # Initialize producer
     producer = initialize_producer()
     if not producer:
         logger.error("Failed to initialize producer. Exiting.")
         sys.exit(1)
     
-    # Main loop
-    logger.info("Starting data collection loop...\n")
+    logger.info("Starting multi-city real data collection loop...")
+    logger.info(f"Rotating through {len(Config.CITIES)} cities every ~40 seconds\n")
     
-            try:
+    try:
         while running:
-            # Rotate through every city in the list
             for city_query in Config.CITIES:
-                if not running:  # Allow Ctrl+C during rotation
+                if not running:
                     break
                 
-                # city_query = "Quezon City,PH" → city_name = "Quezon City"
                 city_name = city_query.split(',')[0]
-                
                 weather_data = fetch_weather_data(city_query)
                 
                 if weather_data:
-                    # Force clean city name (in case API returns something slightly different)
                     weather_data[FIELD_LOCATION] = city_name
                     send_to_kafka(weather_data)
                 else:
-                    log_warning(logger, f"Failed to fetch valid data for {city_name}")
+                    log_warning(logger, f"Failed to fetch data for {city_name}")
                 
-                # Small delay between cities (be nice to the API)
-                time.sleep(3)
+                time.sleep(3)  # Be nice to API
             
-            # After full rotation of all 10 cities, wait 10 seconds before next cycle
-            # → New real data every ~40 seconds for all cities
-            time.sleep(10)
-            
+            time.sleep(10)  # Pause after full rotation
+    
     except KeyboardInterrupt:
-        logger.info("Keyboard interrupt received")
+        logger.info("Shutdown requested by user")
     except Exception as e:
         log_error(logger, e, "Unexpected error in main loop")
     finally:
-        # Cleanup (same as before)
         if producer:
-            logger.info("Flushing remaining messages...")
+            logger.info("Flushing and closing producer...")
             producer.flush()
             producer.close()
-            log_success(logger, "Producer closed gracefully")
+            log_success(logger, "Producer closed")
         
         logger.info(f"Total messages sent: {message_count}")
-        logger.info("Shutdown complete")
-            
-    except KeyboardInterrupt:
-        logger.info("Keyboard interrupt received")
-        
-    except Exception as e:
-        log_error(logger, e, "Unexpected error in main loop")
-        
-    finally:
-        # Cleanup
-        if producer:
-            logger.info("Flushing remaining messages...")
-            producer.flush()
-            producer.close()
-            log_success(logger, "Producer closed gracefully")
-        
-        logger.info(f"Total messages sent: {message_count}")
-        logger.info("Shutdown complete")
+        logger.info("Producer shutdown complete")
 
 
 if __name__ == "__main__":
