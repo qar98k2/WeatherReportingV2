@@ -591,9 +591,21 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 ---
 
-## 👥 Authors
+## 👥 Author and Manager
 
 - **Alastair N. De Guzman** - *College Student*
+
+---
+
+## 👥 Teammates
+- **Andrei Nycole So Bona** - *College Student*
+- **Danica Guariño** - *College Student*
+- **Andrei Santos** - *College Student*
+
+---
+
+## 👥 Adivser
+- **Neal Barton James Matira** - *Professor*
 
 ---
 
