@@ -261,19 +261,28 @@ def main():
     # Main loop
     logger.info("Starting data collection loop...\n")
     
-    try:
+        try:
         while running:
-            # Fetch weather data
-            weather_data = fetch_weather_data(Config.DEFAULT_CITY)
+            # Rotate through all cities in order
+            for city_query in Config.CITIES:
+                if not running:  # Allow graceful shutdown during loop
+                    break
+                    
+                city_name = city_query.split(',')[0]
+                weather_data = fetch_weather_data(city_query)
+                
+                if weather_data:
+                    # Override location field to be clean city name only
+                    weather_data[FIELD_LOCATION] = city_name
+                    send_to_kafka(weather_data)
+                else:
+                    log_warning(logger, f"Failed to fetch data for {city_name}")
+                
+                # Small delay between cities so we don't hammer the API
+                time.sleep(3)
             
-            if weather_data:
-                # Send to Kafka
-                send_to_kafka(weather_data)
-            else:
-                log_warning(logger, f"Failed to fetch data for {Config.DEFAULT_CITY}")
-            
-            # Wait for next iteration
-            time.sleep(Config.FETCH_INTERVAL)
+            # Longer pause after full rotation (total cycle ~30–40 seconds for 10 cities)
+            time.sleep(10)
             
     except KeyboardInterrupt:
         logger.info("Keyboard interrupt received")
