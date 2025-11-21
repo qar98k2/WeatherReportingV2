@@ -47,15 +47,17 @@ class Config:
     
     # Supported cities for multi-city support
     SUPPORTED_CITIES: list = [
-        'Quezon City',
-        'Manila',
-        'Cebu City',
-        'Davao City',
-        'Makati',
-        'Pasig',
-        'Taguig',
-        'Caloocan'
-    ]
+    "Quezon City,PH",
+    "Manila,PH",
+    "Cebu City,PH",
+    "Davao City,PH",
+    "Makati,PH",
+    "Tokyo,JP",
+    "Singapore,SG",
+    "Bangkok,TH",
+    "Seoul,KR",
+    "Los Angeles,US"
+]
     
     # ==========================================
     # DASHBOARD CONFIGURATION
