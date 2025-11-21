@@ -13,6 +13,7 @@ import random
 import requests
 from kafka import KafkaProducer
 from kafka.errors import KafkaError, KafkaTimeoutError
+import os  # <-- added for env fallback
 
 from config import Config
 from logger import setup_logger, log_error, log_success, log_warning
@@ -84,6 +85,20 @@ def validate_weather_data(data: Dict[str, Any]) -> bool:
         return False
 
 
+def _build_fallback_api_url(city: str) -> str:
+    """
+    Build a fallback API URL (used if Config.get_api_url appears to be unavailable
+    or incorrectly hardcoded).
+    Prefer Config-provided key if present, otherwise fall back to OPENWEATHER_API_KEY env var.
+    """
+    # Prefer an API key configured in Config if provided
+    api_key = getattr(Config, "API_KEY", None) or os.getenv("OPENWEATHER_API_KEY")
+    if not api_key:
+        # This should be caught earlier in initialize_producer(), but guard anyway
+        raise RuntimeError("No OpenWeather API key available (Config.API_KEY or OPENWEATHER_API_KEY).")
+    return f"http://api.openweathermap.org/data/2.5/weather?q={city}&appid={api_key}&units=metric"
+
+
 def fetch_weather_data(city: str, retry_count: int = 0) -> Optional[Dict[str, Any]]:
     """
     Fetch weather data from OpenWeatherMap API with retry logic
@@ -96,18 +111,40 @@ def fetch_weather_data(city: str, retry_count: int = 0) -> Optional[Dict[str, An
         Weather data dictionary or None if failed
     """
     try:
-        api_url = Config.get_api_url(city)
+        # Try to use configured helper first (keeps your existing Config usage)
+        try:
+            api_url = Config.get_api_url(city)
+        except Exception:
+            api_url = None
+
+        # If Config.get_api_url returns None or looks like a default/hardcoded url,
+        # fallback to building a correct per-city URL using the API key.
+        # We consider an api_url invalid if it doesn't have the city name in it.
+        if not api_url or city.lower().split(',')[0] not in api_url.lower():
+            api_url = _build_fallback_api_url(city)
+
         response = requests.get(api_url, timeout=Config.API_TIMEOUT)
         response.raise_for_status()
         data = response.json()
         
-        # Add small random noise to simulate variation
+        # Add small random noise to simulate variation (keeps your original behaviour)
         temp_noise = random.uniform(-0.5, 0.5)
         feels_like_noise = random.uniform(-0.5, 0.5)
-        
+
+        # Use the API-provided timestamp (dt) as the canonical timestamp for the record.
+        # This helps historical queries (0-24h) because timestamps will match the API's timeline.
+        source_dt = data.get("dt")
+        if source_dt:
+            timestamp_iso = datetime.fromtimestamp(source_dt, tz=timezone.utc).isoformat()
+        else:
+            timestamp_iso = datetime.now(timezone.utc).isoformat()
+
         # Parse and structure the data
         weather_data = {
-            FIELD_TIMESTAMP: datetime.now(timezone.utc).isoformat(),
+            # Use API dt as canonical timestamp (fixes historical range mismatches)
+            FIELD_TIMESTAMP: timestamp_iso,
+            # store source unix ts as well if needed by downstream systems
+            "source_dt": source_dt,
             FIELD_TEMPERATURE: round(data['main']['temp'] + temp_noise, 2),
             FIELD_FEELS_LIKE: round(data['main']['feels_like'] + feels_like_noise, 2),
             FIELD_HUMIDITY: data['main']['humidity'],
@@ -117,15 +154,15 @@ def fetch_weather_data(city: str, retry_count: int = 0) -> Optional[Dict[str, An
             FIELD_VISIBILITY: data.get('visibility', 10000) / 1000,  # Convert m to km
             FIELD_CONDITION: data['weather'][0]['main'],
             FIELD_DESCRIPTION: data['weather'][0]['description'],
-            FIELD_LOCATION: city,
-            FIELD_COUNTRY: data['sys']['country'],
+            FIELD_LOCATION: city,  # will be normalized by main() later if needed
+            FIELD_COUNTRY: data['sys'].get('country'),
             FIELD_SUNRISE: datetime.fromtimestamp(
                 data['sys']['sunrise'], tz=timezone.utc
-            ).isoformat(),
+            ).isoformat() if data.get('sys', {}).get('sunrise') else None,
             FIELD_SUNSET: datetime.fromtimestamp(
                 data['sys']['sunset'], tz=timezone.utc
-            ).isoformat(),
-            FIELD_CLOUDINESS: data['clouds']['all']
+            ).isoformat() if data.get('sys', {}).get('sunset') else None,
+            FIELD_CLOUDINESS: data.get('clouds', {}).get('all')
         }
         
         # Validate data before returning
@@ -143,9 +180,9 @@ def fetch_weather_data(city: str, retry_count: int = 0) -> Optional[Dict[str, An
         return None
         
     except requests.exceptions.HTTPError as e:
-        if e.response.status_code == 404:
+        if e.response is not None and e.response.status_code == 404:
             log_error(logger, e, f"City not found: {city}")
-        elif e.response.status_code == 401:
+        elif e.response is not None and e.response.status_code == 401:
             log_error(logger, e, "Invalid API key")
         else:
             log_error(logger, e, f"HTTP error for {city}")
@@ -180,6 +217,10 @@ def send_to_kafka(data: Dict[str, Any]) -> bool:
     global message_count
     
     try:
+        # Ensure FIELD_LOCATION exists before sending - prevents consumer-side confusion
+        if FIELD_LOCATION not in data or not data[FIELD_LOCATION]:
+            data[FIELD_LOCATION] = Config.DEFAULT_CITY
+
         future = producer.send(Config.KAFKA_TOPIC, value=data)
         record_metadata = future.get(timeout=10)
         
@@ -215,6 +256,12 @@ def initialize_producer() -> Optional[KafkaProducer]:
         KafkaProducer instance or None if failed
     """
     try:
+        # Basic sanity check for API key availability:
+        api_key_available = getattr(Config, "API_KEY", None) or os.getenv("OPENWEATHER_API_KEY")
+        if not api_key_available:
+            log_error(logger, "OpenWeather API key not configured (Config.API_KEY or OPENWEATHER_API_KEY)", "Missing API Key")
+            return None
+
         producer = KafkaProducer(
             bootstrap_servers=[Config.KAFKA_BROKER],
             value_serializer=lambda v: json.dumps(v).encode('utf-8'),
@@ -265,9 +312,11 @@ def main():
                     break
                 
                 city_name = city_query.split(',')[0]
+                # Pass the full city_query (may include country) to fetch_weather_data
                 weather_data = fetch_weather_data(city_query)
                 
                 if weather_data:
+                    # Normalize the location field to plain city name for downstream consumers
                     weather_data[FIELD_LOCATION] = city_name
                     send_to_kafka(weather_data)
                 else:
