@@ -220,10 +220,10 @@ with tab2:
     
     historical = get_historical_data(selected_city, hours)
     
-if not historical.empty:
-    df = historical.copy()  
-    df['timestamp'] = pd.to_datetime(df['timestamp'], utc=True)
-    df = df.sort_values('timestamp')
+    if historical:
+        df = pd.DataFrame(historical)
+        df['timestamp'] = df['timestamp'].apply(parse_timestamp)
+        df = df.sort_values('timestamp')
         
         # Stats
         col1, col2, col3, col4 = st.columns(4)
