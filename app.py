@@ -1,7 +1,14 @@
+# File: /mnt/data/WeatherReportingV2-main/app.py
 """
 Weather Monitoring Dashboard - Streamlit Cloud Optimized
 Lightweight version that reads directly from MongoDB Atlas
 No Kafka dependencies - just displays data from MongoDB
+
+This version preserves your original structure and style while applying
+targeted fixes for:
+ - historical 0-24h queries (use UTC datetimes & robust fallback)
+ - light-theme readability (CSS variables, explicit text color)
+ - Excel export crash (sanitize data types and fallback to string export)
 """
 
 import streamlit as st
@@ -12,6 +19,9 @@ import plotly.graph_objects as go
 from datetime import datetime, timedelta, timezone
 from streamlit_autorefresh import st_autorefresh
 import logging
+from io import BytesIO
+import json
+import numpy as np
 
 # ==================== LOGGER (small robustness addition) ====================
 logger = logging.getLogger("weather_dashboard")
@@ -83,7 +93,7 @@ if auto_refresh:
     st_autorefresh(interval=15000, key="refresh")
 
 # ==================== STYLING ====================
-# Use more robust selectors and CSS variables so light theme doesn't render white text on white
+# Use CSS variables so light theme doesn't render white text on white
 if theme == "Dark":
     st.markdown("""
     <style>
@@ -148,7 +158,7 @@ def get_historical_data(city: str, hours: int = 24):
     try:
         cutoff_dt = datetime.now(timezone.utc) - timedelta(hours=hours)
 
-        # Primary query: use native datetime object (recommended)
+        # Try querying using datetime objects (recommended)
         cursor = collection.find({
             "location": city,
             "timestamp": {"$gte": cutoff_dt}
@@ -156,7 +166,7 @@ def get_historical_data(city: str, hours: int = 24):
 
         results = list(cursor)
 
-        # If no results using datetime objects, fallback to ISO string comparison
+        # If no results, fallback to ISO string matching (handles string-stored timestamps)
         if not results:
             cutoff_iso = cutoff_dt.isoformat()
             cursor = collection.find({
@@ -168,7 +178,7 @@ def get_historical_data(city: str, hours: int = 24):
         df = pd.DataFrame(results)
 
         if not df.empty and 'timestamp' in df.columns:
-            # Ensure timestamps are parsed into timezone-aware datetimes
+            # Parse and coerce timestamps to timezone-aware UTC datetimes
             df['timestamp'] = pd.to_datetime(df['timestamp'], utc=True, errors='coerce')
 
         return df
@@ -179,7 +189,7 @@ def get_historical_data(city: str, hours: int = 24):
 
 
 def parse_timestamp(ts):
-    """Parse timestamp string to datetime (robust)"""
+    """Parse timestamp to timezone-aware datetime (robust)"""
     try:
         return pd.to_datetime(ts, utc=True, errors='coerce')
     except Exception:
@@ -316,8 +326,7 @@ with tab2:
             with col4:
                 st.metric("⏰ Time Range", f"{hours}h")
 
-            # Hourly aggregation
-            # Use floor-to-hour grouping to ensure 0-24h and irregular data sampling works
+            # Hourly aggregation (works with 0-24h and irregular sampling)
             df['hour'] = df['timestamp'].dt.floor('H')
             agg = df.groupby('hour').agg({
                 'temperature': ['mean', 'min', 'max'],
@@ -327,13 +336,12 @@ with tab2:
 
             # Flatten column names
             agg.columns = ['_'.join(col).strip('_') if isinstance(col, tuple) else col for col in agg.columns.values]
+
             # Normalize timestamp column name for plotting and export
-            if 'hour_' in agg.columns[0] or 'hour' in agg.columns:
-                # pick the hour column (should be agg['hour'])
-                if 'hour' in agg.columns:
-                    agg = agg.rename(columns={'hour': 'timestamp'})
-                else:
-                    agg = agg.rename(columns={agg.columns[0]: 'timestamp'})
+            if 'hour' in agg.columns:
+                agg = agg.rename(columns={'hour': 'timestamp'})
+            elif agg.columns[0].startswith('hour'):
+                agg = agg.rename(columns={agg.columns[0]: 'timestamp'})
 
             df_hourly = agg.copy()
 
@@ -422,24 +430,109 @@ with tab2:
                 csv = df.to_csv(index=False)
                 st.download_button("📄 Download CSV", csv, f"weather_{selected_city}.csv", "text/csv")
             with col2:
-                from io import BytesIO
+                # Robust Excel export: sanitize datatypes and fallback to string export if needed
                 output = BytesIO()
 
-                # Remove timezone from datetime columns for Excel compatibility
                 df_export = df.copy()
-                if 'timestamp' in df_export.columns:
-                    df_export['timestamp'] = pd.to_datetime(df_export['timestamp']).dt.tz_localize(None)
-
                 df_hourly_export = df_hourly.copy()
-                if 'timestamp' in df_hourly_export.columns:
-                    df_hourly_export['timestamp'] = pd.to_datetime(df_hourly_export['timestamp']).dt.tz_localize(None)
 
-                with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                    df_export.to_excel(writer, sheet_name='Raw Data', index=False)
-                    df_hourly_export.to_excel(writer, sheet_name='Hourly Summary', index=False)
-                st.download_button("📊 Download Excel", output.getvalue(),
-                                   f"weather_{selected_city}.xlsx",
-                                   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+                def _make_values_excel_safe(df_to_fix: pd.DataFrame) -> pd.DataFrame:
+                    """
+                    Convert tz-aware datetimes to naive, and convert any nested objects to JSON strings.
+                    """
+                    for col in df_to_fix.columns:
+                        # 1) If column is datetime-like, make naive (remove tz)
+                        if pd.api.types.is_datetime64_any_dtype(df_to_fix[col]):
+                            try:
+                                df_to_fix[col] = pd.to_datetime(df_to_fix[col], utc=True, errors='coerce')
+                                # result is tz-aware (UTC); convert to naive for Excel
+                                df_to_fix[col] = df_to_fix[col].dt.tz_localize(None)
+                            except Exception:
+                                # Ensure naive fallback
+                                df_to_fix[col] = pd.to_datetime(df_to_fix[col], errors='coerce')
+                        else:
+                            # 2) For object dtype, ensure everything is string-serializable
+                            if df_to_fix[col].dtype == 'O':
+                                def _safe_val(v):
+                                    if pd.isna(v):
+                                        return v
+                                    # dict / list / tuple => json string
+                                    if isinstance(v, (dict, list, tuple)):
+                                        try:
+                                            return json.dumps(v, default=str, ensure_ascii=False)
+                                        except Exception:
+                                            return str(v)
+                                    if isinstance(v, bytes):
+                                        try:
+                                            return v.decode('utf-8', errors='ignore')
+                                        except Exception:
+                                            return str(v)
+                                    if isinstance(v, (np.ndarray,)):
+                                        try:
+                                            return json.dumps(v.tolist(), default=str, ensure_ascii=False)
+                                        except Exception:
+                                            return str(v)
+                                    # pandas Timestamp with tzinfo
+                                    try:
+                                        tzinfo = getattr(v, 'tzinfo', None)
+                                        if tzinfo is not None:
+                                            try:
+                                                return pd.to_datetime(v).tz_convert(None)
+                                            except Exception:
+                                                return pd.to_datetime(v).tz_localize(None)
+                                    except Exception:
+                                        pass
+                                    # fallback
+                                    return v
+
+                                df_to_fix[col] = df_to_fix[col].apply(_safe_val)
+                    return df_to_fix
+
+                try:
+                    df_export = _make_values_excel_safe(df_export)
+                    df_hourly_export = _make_values_excel_safe(df_hourly_export)
+
+                    # Extra guard: ensure datetime columns are naive
+                    for c in df_export.select_dtypes(include=['datetime64[ns, tz]', 'datetime64[ns]']).columns:
+                        try:
+                            df_export[c] = pd.to_datetime(df_export[c], utc=True, errors='coerce').dt.tz_localize(None)
+                        except Exception:
+                            df_export[c] = pd.to_datetime(df_export[c], errors='coerce')
+
+                    for c in df_hourly_export.select_dtypes(include=['datetime64[ns, tz]', 'datetime64[ns]']).columns:
+                        try:
+                            df_hourly_export[c] = pd.to_datetime(df_hourly_export[c], utc=True, errors='coerce').dt.tz_localize(None)
+                        except Exception:
+                            df_hourly_export[c] = pd.to_datetime(df_hourly_export[c], errors='coerce')
+
+                    # Write to Excel
+                    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                        df_export.to_excel(writer, sheet_name='Raw Data', index=False)
+                        df_hourly_export.to_excel(writer, sheet_name='Hourly Summary', index=False)
+
+                except Exception as e:
+                    # If something still fails, fallback to converting everything to strings and retry
+                    logger.exception(f"Excel export failed (attempting string fallback): {e}")
+                    try:
+                        df_export_str = df_export.astype(str)
+                        df_hourly_export_str = df_hourly_export.astype(str)
+                        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                            df_export_str.to_excel(writer, sheet_name='Raw Data', index=False)
+                            df_hourly_export_str.to_excel(writer, sheet_name='Hourly Summary', index=False)
+                    except Exception as e2:
+                        # As a last resort, provide CSV export and a friendly error
+                        logger.exception(f"Excel fallback also failed: {e2}")
+                        st.error("Export failed: unable to write Excel file. You can still download CSV format.")
+                        st.download_button("📄 Download CSV (raw)", df_export.to_csv(index=False), f"weather_{selected_city}.csv", "text/csv")
+                    else:
+                        st.download_button("📊 Download Excel", output.getvalue(),
+                                           f"weather_{selected_city}.xlsx",
+                                           "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+                else:
+                    # If primary path succeeded, provide the download button
+                    st.download_button("📊 Download Excel", output.getvalue(),
+                                       f"weather_{selected_city}.xlsx",
+                                       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
     else:
         st.warning(f"⚠️ No historical data available for {selected_city}")
 
