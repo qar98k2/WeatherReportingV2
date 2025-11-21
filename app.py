@@ -50,7 +50,19 @@ collection = db[COLLECTION_NAME]
 # ==================== SIDEBAR ====================
 st.sidebar.title("🌤️ Dashboard Controls")
 
-cities = ["Quezon City", "Manila", "Cebu City", "Davao City", "Makati", "Pasig", "Taguig", "Caloocan"]
+cities = [
+    "Quezon City",
+    "Manila",
+    "Cebu City",
+    "Davao City",
+    "Makati",
+    "Tokyo",
+    "Singapore",
+    "Bangkok",
+    "Seoul",
+    "Los Angeles"
+]
+
 selected_city = st.sidebar.selectbox("📍 Select City", cities, index=0)
 
 hours = st.sidebar.select_slider("⏰ Historical Range (hours)", options=[1, 6, 12, 24, 48, 72, 168], value=24)
