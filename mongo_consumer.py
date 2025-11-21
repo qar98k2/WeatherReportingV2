@@ -46,7 +46,6 @@ def signal_handler(signum, frame):
 def create_indexes():
     """Create MongoDB indexes for better query performance"""
     try:
-        # Create index on timestamp (descending for recent queries)
         collection.create_index(
             [(FIELD_TIMESTAMP, DESCENDING)],
             name=INDEX_TIMESTAMP,
@@ -54,7 +53,6 @@ def create_indexes():
         )
         logger.info(f"Created index: {INDEX_TIMESTAMP}")
         
-        # Create index on location
         collection.create_index(
             [(FIELD_LOCATION, ASCENDING)],
             name=INDEX_LOCATION,
@@ -62,7 +60,6 @@ def create_indexes():
         )
         logger.info(f"Created index: {INDEX_LOCATION}")
         
-        # Create compound index on timestamp and location
         collection.create_index(
             [(FIELD_TIMESTAMP, DESCENDING), (FIELD_LOCATION, ASCENDING)],
             name=INDEX_TIMESTAMP_LOCATION,
@@ -76,16 +73,23 @@ def create_indexes():
         log_error(logger, e, "Failed to create indexes")
 
 
+# NEW — convert timestamp from string → datetime.utc
+def fix_timestamp_format(data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Ensures the timestamp is stored as a datetime object in UTC.
+    Producer sends ISO8601 string timestamps, but MongoDB must store datetime.
+    """
+    if FIELD_TIMESTAMP in data:
+        try:
+            # Example input: "2025-01-15T12:00:02Z"
+            parsed = datetime.fromisoformat(data[FIELD_TIMESTAMP].replace("Z", "+00:00"))
+            data[FIELD_TIMESTAMP] = parsed.astimezone(timezone.utc)
+        except Exception:
+            log_warning(logger, f"Invalid timestamp format: {data[FIELD_TIMESTAMP]}")
+    return data
+
+
 def validate_message(data: Dict[str, Any]) -> bool:
-    """
-    Validate message data before insertion
-    
-    Args:
-        data: Message data dictionary
-        
-    Returns:
-        True if valid, False otherwise
-    """
     required_fields = [
         FIELD_TIMESTAMP,
         FIELD_TEMPERATURE,
@@ -101,15 +105,6 @@ def validate_message(data: Dict[str, Any]) -> bool:
 
 
 def check_duplicate(data: Dict[str, Any]) -> bool:
-    """
-    Check if a record with the same timestamp and location already exists
-    
-    Args:
-        data: Message data dictionary
-        
-    Returns:
-        True if duplicate exists, False otherwise
-    """
     try:
         existing = collection.find_one({
             FIELD_TIMESTAMP: data[FIELD_TIMESTAMP],
@@ -122,24 +117,16 @@ def check_duplicate(data: Dict[str, Any]) -> bool:
 
 
 def insert_data(data: Dict[str, Any]) -> bool:
-    """
-    Insert weather data into MongoDB
-    
-    Args:
-        data: Weather data dictionary
-        
-    Returns:
-        True if successful, False otherwise
-    """
     global message_count
     
     try:
-        # Validate data
+        # FIX APPLIED HERE
+        data = fix_timestamp_format(data)
+
         if not validate_message(data):
             log_warning(logger, "Invalid message data, skipping")
             return False
         
-        # Check for duplicates
         if check_duplicate(data):
             log_warning(
                 logger,
@@ -149,7 +136,6 @@ def insert_data(data: Dict[str, Any]) -> bool:
             )
             return False
         
-        # Insert into MongoDB
         result = collection.insert_one(data)
         
         if result.inserted_id:
@@ -181,29 +167,21 @@ def insert_data(data: Dict[str, Any]) -> bool:
 
 
 def batch_insert_data(batch: List[Dict[str, Any]]) -> int:
-    """
-    Insert multiple weather data records in batch
-    
-    Args:
-        batch: List of weather data dictionaries
-        
-    Returns:
-        Number of successfully inserted records
-    """
     if not batch:
         return 0
     
     try:
-        # Filter valid and non-duplicate records
         valid_records = []
         for data in batch:
+            # FIX APPLIED HERE ALSO
+            data = fix_timestamp_format(data)
+
             if validate_message(data) and not check_duplicate(data):
                 valid_records.append(data)
         
         if not valid_records:
             return 0
         
-        # Batch insert
         result = collection.insert_many(valid_records, ordered=False)
         inserted_count = len(result.inserted_ids)
         
@@ -226,16 +204,9 @@ def batch_insert_data(batch: List[Dict[str, Any]]) -> int:
 
 
 def initialize_mongodb() -> bool:
-    """
-    Initialize MongoDB connection and collection
-    
-    Returns:
-        True if successful, False otherwise
-    """
     global mongo_client, collection
     
     try:
-        # Create MongoDB client with connection pooling
         mongo_client = MongoClient(
             Config.MONGO_URI,
             maxPoolSize=Config.MONGO_MAX_POOL_SIZE,
@@ -245,10 +216,8 @@ def initialize_mongodb() -> bool:
             socketTimeoutMS=Config.MONGO_SOCKET_TIMEOUT
         )
         
-        # Test connection
         mongo_client.admin.command('ping')
         
-        # Get database and collection
         db = mongo_client[Config.MONGO_DB_NAME]
         collection = db[Config.MONGO_COLLECTION_NAME]
         
@@ -262,7 +231,6 @@ def initialize_mongodb() -> bool:
             documents=initial_count
         )
         
-        # Create indexes
         create_indexes()
         
         return True
@@ -281,12 +249,6 @@ def initialize_mongodb() -> bool:
 
 
 def initialize_consumer() -> Optional[KafkaConsumer]:
-    """
-    Initialize Kafka consumer
-    
-    Returns:
-        KafkaConsumer instance or None if failed
-    """
     try:
         consumer = KafkaConsumer(
             Config.KAFKA_TOPIC,
@@ -317,24 +279,19 @@ def initialize_consumer() -> Optional[KafkaConsumer]:
 
 
 def main():
-    """Main consumer loop"""
     global consumer, running, batch_buffer
     
-    # Register signal handlers
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
     
-    # Display configuration
     Config.display_config()
     
     logger.info("🔧 Starting MongoDB Consumer...")
     
-    # Initialize MongoDB
     if not initialize_mongodb():
         logger.error("Failed to initialize MongoDB. Exiting.")
         sys.exit(1)
     
-    # Initialize Kafka consumer
     consumer = initialize_consumer()
     if not consumer:
         logger.error("Failed to initialize Kafka consumer. Exiting.")
@@ -343,7 +300,6 @@ def main():
     logger.info("Waiting for messages...\n")
     
     try:
-        # Main consumption loop
         for message in consumer:
             if not running:
                 break
@@ -351,16 +307,13 @@ def main():
             try:
                 data = message.value
                 
-                # Process message
                 if Config.BATCH_SIZE > 1:
-                    # Batch mode
                     batch_buffer.append(data)
                     
                     if len(batch_buffer) >= Config.BATCH_SIZE:
                         batch_insert_data(batch_buffer)
                         batch_buffer.clear()
                 else:
-                    # Single insert mode
                     insert_data(data)
                     
             except json.JSONDecodeError as e:
@@ -371,7 +324,6 @@ def main():
                 log_error(logger, e, "Error processing message")
                 continue
         
-        # Insert remaining batch items
         if batch_buffer:
             logger.info("Inserting remaining batch items...")
             batch_insert_data(batch_buffer)
@@ -384,7 +336,6 @@ def main():
         log_error(logger, e, "Unexpected error in main loop")
         
     finally:
-        # Cleanup
         if consumer:
             logger.info("Closing Kafka consumer...")
             consumer.close()
