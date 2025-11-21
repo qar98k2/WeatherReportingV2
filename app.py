@@ -93,28 +93,36 @@ else:
 
 # ==================== DATA FUNCTIONS ====================
 @st.cache_data(ttl=60)
-def get_latest_data(city):
-    """Get latest weather data for a city"""
+def get_latest_data(city: str):
+    """Get the most recent weather data for a specific city"""
     try:
-        data = collection.find_one({"location": city}, sort=[("timestamp", -1)])
-        return data
+        doc = col.find({"location": city}).sort("timestamp", -1).limit(1)
+        doc_list = list(doc)
+        return doc_list[0] if doc_list else None
     except Exception as e:
-        st.error(f"Error: {e}")
+        st.error(f"Error fetching live data: {e}")
         return None
 
-@st.cache_data(ttl=300)
-def get_historical_data(city, hours):
-    """Get historical data for a city"""
+def get_historical_data(city: str, hours: int = 24):
+    """Get historical data for a specific city in the last N hours"""
     try:
         cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
-        cursor = collection.find(
-            {"location": city, "timestamp": {"$gte": cutoff.isoformat()}},
-            sort=[("timestamp", 1)]
-        )
-        return list(cursor)
+        pipeline = [
+            {"$match": {
+                "location": city,
+                "timestamp": {"$gte": cutoff.isoformat()}
+            }},
+            {"$sort": {"timestamp": -1}}
+        ]
+        data = list(col.aggregate(pipeline))
+        df = pd.DataFrame(data)
+        if not df.empty and 'timestamp' in df.columns:
+            df['timestamp'] = pd.to_datetime(df['timestamp'], utc=True)
+            df = df.sort_values('timestamp')
+        return df
     except Exception as e:
-        st.error(f"Error: {e}")
-        return []
+        st.error(f"Error fetching historical data: {e}")
+        return pd.DataFrame()
 
 def parse_timestamp(ts):
     """Parse timestamp string to datetime"""
