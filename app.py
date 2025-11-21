@@ -221,7 +221,7 @@ with tab2:
     
     historical = get_historical_data(selected_city, hours)
     
-    if historical:
+    if not historical.empty:
         df = pd.DataFrame(historical)
         df['timestamp'] = df['timestamp'].apply(parse_timestamp)
         df = df.sort_values('timestamp')
