@@ -11,7 +11,6 @@ from datetime import datetime, timezone
 from typing import Dict, Optional, Any
 import random
 import requests
-from kafka import KafkaProducer
 from kafka.errors import KafkaError, KafkaTimeoutError
 
 from config import Config
