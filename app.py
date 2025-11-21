@@ -9,6 +9,7 @@ targeted fixes for:
  - historical 0-24h queries (use UTC datetimes & robust fallback)
  - light-theme readability (CSS variables, explicit text color)
  - Excel export crash (sanitize data types and fallback to string export)
+ - Philippine timezone display (UTC+8)
 """
 
 import streamlit as st
@@ -22,11 +23,16 @@ import logging
 from io import BytesIO
 import json
 import numpy as np
+import pytz
 
-# ==================== LOGGER (small robustness addition) ====================
+# ==================== LOGGER ====================
 logger = logging.getLogger("weather_dashboard")
 if not logger.handlers:
     logging.basicConfig(level=logging.INFO)
+
+# ==================== TIMEZONE CONFIGURATION ====================
+# Philippine timezone (UTC+8)
+PH_TZ = pytz.timezone('Asia/Manila')
 
 # ==================== CONFIGURATION ====================
 # Try Streamlit secrets first (for cloud), fallback to environment variables (for local)
@@ -140,10 +146,12 @@ def get_latest_data(city: str):
             {"location": city},
             sort=[("timestamp", -1)]
         )
-        # If timestamp is string, try to parse it so UI can display properly
+        # If timestamp is string, try to parse it and convert to PH timezone
         if doc and 'timestamp' in doc:
             try:
-                doc['timestamp'] = pd.to_datetime(doc['timestamp'], utc=True)
+                # Parse as UTC then convert to PH timezone
+                utc_time = pd.to_datetime(doc['timestamp'], utc=True)
+                doc['timestamp'] = utc_time.tz_convert(PH_TZ)
             except Exception:
                 # fallback: keep raw
                 pass
@@ -156,6 +164,7 @@ def get_latest_data(city: str):
 def get_historical_data(city: str, hours: int = 24):
     """Fetch historical data for the selected city within the last N hours"""
     try:
+        # Calculate cutoff time in UTC
         cutoff_dt = datetime.now(timezone.utc) - timedelta(hours=hours)
 
         # Try querying using datetime objects (recommended)
@@ -178,8 +187,9 @@ def get_historical_data(city: str, hours: int = 24):
         df = pd.DataFrame(results)
 
         if not df.empty and 'timestamp' in df.columns:
-            # Parse and coerce timestamps to timezone-aware UTC datetimes
+            # Parse as UTC then convert to PH timezone for display
             df['timestamp'] = pd.to_datetime(df['timestamp'], utc=True, errors='coerce')
+            df['timestamp'] = df['timestamp'].dt.tz_convert(PH_TZ)
 
         return df
 
@@ -220,11 +230,11 @@ with tab1:
     latest = get_latest_data(selected_city)
 
     if latest:
-        # Ensure timestamp is shown nicely
+        # Ensure timestamp is shown nicely in PH timezone
         ts_display = latest.get('timestamp')
         try:
             if pd.notna(ts_display):
-                ts_str = pd.to_datetime(ts_display).strftime("%Y-%m-%d %H:%M:%S %Z")
+                ts_str = pd.to_datetime(ts_display).strftime("%Y-%m-%d %H:%M:%S PHT")
             else:
                 ts_str = str(latest.get('timestamp', 'N/A'))
         except Exception:
@@ -272,14 +282,16 @@ with tab1:
         if recent_data:
             df_recent = pd.DataFrame(recent_data)
             if 'timestamp' in df_recent.columns:
+                # Convert to PH timezone for display
                 df_recent['timestamp'] = pd.to_datetime(df_recent['timestamp'], utc=True, errors='coerce')
+                df_recent['timestamp'] = df_recent['timestamp'].dt.tz_convert(PH_TZ)
                 df_recent = df_recent.dropna(subset=['timestamp'])
                 df_recent = df_recent.sort_values('timestamp')
 
                 # Plot
                 fig = px.line(df_recent, x='timestamp', y='temperature',
                               title='Temperature Trend',
-                              labels={'temperature': 'Temperature (°C)', 'timestamp': 'Time'})
+                              labels={'temperature': 'Temperature (°C)', 'timestamp': 'Time (PHT)'})
 
                 # Respect theme for color
                 fig.update_traces(line_color='#ff6b6b', line_width=2)
@@ -305,7 +317,7 @@ with tab2:
         df = pd.DataFrame(historical)
 
         if 'timestamp' in df.columns:
-            df['timestamp'] = pd.to_datetime(df['timestamp'], utc=True, errors='coerce')
+            # Already converted to PH timezone in get_historical_data()
             df = df.dropna(subset=['timestamp'])
             df = df.sort_values('timestamp')
         else:
@@ -376,7 +388,7 @@ with tab2:
                 ))
                 fig_temp.update_layout(
                     title="Temperature Trend (Hourly)",
-                    xaxis_title="Time",
+                    xaxis_title="Time (PHT)",
                     yaxis_title="Temperature (°C)",
                     font=dict(color=plot_font_color),
                     plot_bgcolor='rgba(0,0,0,0)',
@@ -396,7 +408,7 @@ with tab2:
                 ))
                 fig_hum.update_layout(
                     title="Humidity Trend (Hourly)",
-                    xaxis_title="Time",
+                    xaxis_title="Time (PHT)",
                     yaxis_title="Humidity (%)",
                     font=dict(color=plot_font_color),
                     plot_bgcolor='rgba(0,0,0,0)',
@@ -444,9 +456,10 @@ with tab2:
                         # 1) If column is datetime-like, make naive (remove tz)
                         if pd.api.types.is_datetime64_any_dtype(df_to_fix[col]):
                             try:
-                                df_to_fix[col] = pd.to_datetime(df_to_fix[col], utc=True, errors='coerce')
-                                # result is tz-aware (UTC); convert to naive for Excel
-                                df_to_fix[col] = df_to_fix[col].dt.tz_localize(None)
+                                df_to_fix[col] = pd.to_datetime(df_to_fix[col], errors='coerce')
+                                # Convert to naive for Excel compatibility
+                                if hasattr(df_to_fix[col].dtype, 'tz') and df_to_fix[col].dtype.tz is not None:
+                                    df_to_fix[col] = df_to_fix[col].dt.tz_localize(None)
                             except Exception:
                                 # Ensure naive fallback
                                 df_to_fix[col] = pd.to_datetime(df_to_fix[col], errors='coerce')
@@ -477,9 +490,9 @@ with tab2:
                                         tzinfo = getattr(v, 'tzinfo', None)
                                         if tzinfo is not None:
                                             try:
-                                                return pd.to_datetime(v).tz_convert(None)
-                                            except Exception:
                                                 return pd.to_datetime(v).tz_localize(None)
+                                            except Exception:
+                                                return pd.to_datetime(v).tz_convert(None)
                                     except Exception:
                                         pass
                                     # fallback
@@ -491,19 +504,6 @@ with tab2:
                 try:
                     df_export = _make_values_excel_safe(df_export)
                     df_hourly_export = _make_values_excel_safe(df_hourly_export)
-
-                    # Extra guard: ensure datetime columns are naive
-                    for c in df_export.select_dtypes(include=['datetime64[ns, tz]', 'datetime64[ns]']).columns:
-                        try:
-                            df_export[c] = pd.to_datetime(df_export[c], utc=True, errors='coerce').dt.tz_localize(None)
-                        except Exception:
-                            df_export[c] = pd.to_datetime(df_export[c], errors='coerce')
-
-                    for c in df_hourly_export.select_dtypes(include=['datetime64[ns, tz]', 'datetime64[ns]']).columns:
-                        try:
-                            df_hourly_export[c] = pd.to_datetime(df_hourly_export[c], utc=True, errors='coerce').dt.tz_localize(None)
-                        except Exception:
-                            df_hourly_export[c] = pd.to_datetime(df_hourly_export[c], errors='coerce')
 
                     # Write to Excel
                     with pd.ExcelWriter(output, engine='openpyxl') as writer:
@@ -538,6 +538,9 @@ with tab2:
 
 # Footer
 st.sidebar.markdown("---")
-st.sidebar.caption(f"Last updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+# Show current time in PH timezone
+ph_now = datetime.now(PH_TZ)
+st.sidebar.caption(f"Last updated: {ph_now.strftime('%Y-%m-%d %H:%M:%S PHT')}")
 st.sidebar.caption(f"Database: {DB_NAME}")
 st.sidebar.caption("Pipeline: MongoDB-Kafka (Local)")
+st.sidebar.caption(f"Timezone: Philippine Time (UTC+8)")
