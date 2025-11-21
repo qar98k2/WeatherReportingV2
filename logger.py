@@ -5,7 +5,8 @@ def setup_logger(name: str = "WeatherProducer", level: str = "INFO") -> logging.
     logger = logging.getLogger(name)
     logger.setLevel(level.upper())
 
-    if logger.handlers.clear()  # Prevent duplicates
+    # Clear existing handlers to prevent duplicates
+    logger.handlers.clear()
 
     handler = logging.StreamHandler(sys.stdout)
     formatter = logging.Formatter(
