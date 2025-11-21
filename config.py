@@ -37,6 +37,7 @@ class Config:
     # OPENWEATHERMAP API CONFIGURATION
     # ==========================================
     OPENWEATHERMAP_API_KEY: Optional[str] = os.getenv('OPENWEATHERMAP_API_KEY')
+    API_KEY: Optional[str] = os.getenv('OPENWEATHERMAP_API_KEY')  # Alias for producer.py
     OPENWEATHERMAP_API_URL: str = "http://api.openweathermap.org/data/2.5/weather"
     
     # ==========================================
@@ -46,18 +47,21 @@ class Config:
     FETCH_INTERVAL: int = int(os.getenv('FETCH_INTERVAL', '15'))
     
     # Supported cities for multi-city support
-    SUPPORTED_CITIES: list = [
-    "Quezon City,PH",
-    "Manila,PH",
-    "Cebu City,PH",
-    "Davao City,PH",
-    "Makati,PH",
-    "Tokyo,JP",
-    "Singapore,SG",
-    "Bangkok,TH",
-    "Seoul,KR",
-    "Los Angeles,US"
-]
+    CITIES: list = [
+        "Quezon City,PH",
+        "Manila,PH",
+        "Cebu City,PH",
+        "Davao City,PH",
+        "Makati,PH",
+        "Tokyo,JP",
+        "Singapore,SG",
+        "Bangkok,TH",
+        "Seoul,KR",
+        "Los Angeles,US"
+    ]
+    
+    # Alias for backward compatibility
+    SUPPORTED_CITIES: list = CITIES
     
     # ==========================================
     # DASHBOARD CONFIGURATION
@@ -198,7 +202,3 @@ except ConfigurationError as e:
 
 # Export for easy importing
 __all__ = ['Config', 'ConfigurationError']
-
-    # Logging configuration – this is what the original logger needs
-    LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")          # Can be DEBUG, INFO, WARNING, etc.
-    LOG_FORMAT = "[%(asctime)s] %(levelname)s %(name)s] %(message)s"
