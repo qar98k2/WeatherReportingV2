@@ -198,3 +198,7 @@ except ConfigurationError as e:
 
 # Export for easy importing
 __all__ = ['Config', 'ConfigurationError']
+
+    # Logging configuration – this is what the original logger needs
+    LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")          # Can be DEBUG, INFO, WARNING, etc.
+    LOG_FORMAT = "[%(asctime)s] %(levelname)s %(name)s] %(message)s"
